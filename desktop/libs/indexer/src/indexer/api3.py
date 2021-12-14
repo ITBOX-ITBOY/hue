@@ -25,6 +25,7 @@ import json
 import logging
 import urllib.error
 import openpyxl
+import pandas as pd
 import re
 import sys
 import tempfile
@@ -127,7 +128,7 @@ def guess_format(request):
     path = urllib_unquote(file_format["path"])
     if 'xlsx' in path:
       format_ = {
-        "type": "xlsx",
+        "type": "excel",
         "hasHeader": True
       }
     else:
@@ -141,6 +142,13 @@ def guess_format(request):
 
   elif file_format['inputFormat'] == 'file':
     path = urllib_unquote(file_format["path"])
+    if path[-3:] == 'xls' or path[-4:] == 'xlsx':
+      file_obj = request.fs.open(path)
+      df = pd.read_excel(file_obj.read(1024 * 1024 * 1024))
+      _csv_data = df.to_csv()
+      path = excel_to_csv_file_name_change(path)
+      request.fs.create(path, overwrite=True, data=_csv_data)
+
     indexer = MorphlineIndexer(request.user, request.fs)
     if not request.fs.isfile(path):
       raise PopupException(_('Path %(path)s is not a file') % file_format)
@@ -153,6 +161,14 @@ def guess_format(request):
       }
     })
     _convert_format(format_)
+    if file_format["path"][-3:] == 'xls' or file_format["path"][-4:] == 'xlsx': 
+      format_ = {
+          "quoteChar": "\"",
+          "recordSeparator": '\\n',
+          "type": "excel",
+          "hasHeader": True,
+          "fieldSeparator": ","
+        }
   elif file_format['inputFormat'] == 'table':
     db = dbms.get(request.user)
     try:
@@ -271,6 +287,8 @@ def guess_field_types(request):
   elif file_format['inputFormat'] == 'file':
     indexer = MorphlineIndexer(request.user, request.fs)
     path = urllib_unquote(file_format["path"])
+    if path[-3:] == 'xls' or path[-4:] == 'xlsx':
+      path = excel_to_csv_file_name_change(path)
     stream = request.fs.open(path)
     encoding = check_encoding(stream.read(10000))
     LOG.debug('File %s encoding is %s' % (path, encoding))
@@ -432,6 +450,8 @@ def importer_submit(request):
   if source['inputFormat'] == 'file':
     if source['path']:
       path = urllib_unquote(source['path'])
+      if path[-3:] == 'xls' or path[-4:] == 'xlsx':
+        path = excel_to_csv_file_name_change(path)
       source['path'] = request.fs.netnormpath(path)
       stream = request.fs.open(path)
       file_encoding = check_encoding(stream.read(10000))
@@ -719,6 +739,14 @@ def save_pipeline(request):
   response['message'] = request.POST.get('editorMode') == 'true' and _('Query saved successfully') or _('Notebook saved successfully')
 
   return JsonResponse(response)
+
+
+def excel_to_csv_file_name_change(path):
+  if path[-4:] == 'xlsx':
+    path = path[:-4] + 'csv'
+  elif path[-3:] == 'xls':
+    path = path[:-3] + 'csv'
+  return path
 
 
 def upload_local_file_drag_and_drop(request):
